@@ -44,6 +44,43 @@ class TestTempestWeather(unittest.TestCase):
         summary = tw.make_summary({"timestamp_epoch": None}, "us")
         self.assertIn("Tempest @", summary)
 
+    def test_summary_includes_sky_estimate_daytime(self):
+        sample = {
+            "timestamp_epoch": 1770914298,  # daytime in local timezone during test date
+            "illuminance_lux": 30000,
+            "solar_radiation_wpm2": 250,
+            "air_temp_f": 25.0,
+            "wind_avg_mph": 3.0,
+            "wind_gust_mph": 5.0,
+            "relative_humidity_pct": 70,
+            "station_pressure_inhg": 28.75,
+            "local_daily_rain_in": 0.0,
+            "rain_accumulated_mm_last_interval": 0.0,
+            "lightning_strike_count_last_interval": 0,
+        }
+        summary = tw.make_summary(sample, "us")
+        self.assertIn("sky est.", summary)
+
+    def test_summary_includes_rain_and_lightning_events(self):
+        sample = {
+            "timestamp_epoch": 1770914298,
+            "illuminance_lux": 30000,
+            "solar_radiation_wpm2": 250,
+            "air_temp_f": 25.0,
+            "wind_avg_mph": 3.0,
+            "wind_gust_mph": 5.0,
+            "relative_humidity_pct": 70,
+            "station_pressure_inhg": 28.75,
+            "local_daily_rain_in": 0.1,
+            "rain_accumulated_mm_last_interval": 0.2,
+            "rain_accumulated_in_last_interval": 0.008,
+            "lightning_strike_count_last_interval": 2,
+            "lightning_avg_distance_km": 6,
+        }
+        summary = tw.make_summary(sample, "us")
+        self.assertIn("rain now", summary)
+        self.assertIn("lightning activity", summary)
+
     # Version is sourced from SKILL.md frontmatter (no env override).
 
     def test_read_version_from_skill_md(self):

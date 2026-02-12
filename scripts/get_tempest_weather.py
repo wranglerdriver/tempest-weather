@@ -138,6 +138,62 @@ def convert_units(parsed, units):
     return out
 
 
+def estimate_sky_condition(data):
+    """
+    Approximate sky condition from station light/radiation readings.
+    This is a heuristic estimate, not measured cloud cover.
+    """
+    ts = data.get("timestamp_epoch")
+    if ts:
+        hour = dt.datetime.fromtimestamp(ts).astimezone().hour
+        if hour < 6 or hour > 20:
+            return "Night"
+
+    lux = data.get("illuminance_lux")
+    solar = data.get("solar_radiation_wpm2")
+
+    if lux is None and solar is None:
+        return None
+
+    score = 0.0
+    if lux is not None:
+        score += min(max(lux / 50000.0, 0.0), 1.0)
+    if solar is not None:
+        score += min(max(solar / 800.0, 0.0), 1.0)
+    score /= 2.0
+
+    if score >= 0.65:
+        return "Sunny"
+    if score >= 0.45:
+        return "Mostly sunny"
+    if score >= 0.25:
+        return "Partly cloudy"
+    if score >= 0.10:
+        return "Mostly cloudy"
+    return "Overcast"
+
+
+def build_event_phrases(data, units):
+    phrases = []
+
+    rain_interval_mm = data.get("rain_accumulated_mm_last_interval")
+    if rain_interval_mm is not None and rain_interval_mm > 0:
+        if units == "us":
+            phrases.append(f"rain now ({data.get('rain_accumulated_in_last_interval')} in/interval)")
+        else:
+            phrases.append(f"rain now ({rain_interval_mm} mm/interval)")
+
+    strikes = data.get("lightning_strike_count_last_interval")
+    if strikes is not None and strikes > 0:
+        dist = data.get("lightning_avg_distance_km")
+        if dist is not None:
+            phrases.append(f"lightning activity ({strikes} strikes, avg {dist} km)")
+        else:
+            phrases.append(f"lightning activity ({strikes} strikes)")
+
+    return phrases
+
+
 def make_summary(data, units):
     ts = data.get("timestamp_epoch")
     local_ts = (
@@ -146,30 +202,38 @@ def make_summary(data, units):
         else "unknown time"
     )
 
+    sky = estimate_sky_condition(data)
+    sky_part = f"sky est. {sky}, " if sky else ""
+
     if units == "us":
         t = data.get("air_temp_f")
         w = data.get("wind_avg_mph")
         g = data.get("wind_gust_mph")
         p = data.get("station_pressure_inhg")
         r = data.get("local_daily_rain_in")
-        return (
+        base = (
             f"Tempest @ {local_ts}: "
-            f"temp {t}°F, wind {w} mph (gust {g}), "
+            f"{sky_part}temp {t}°F, wind {w} mph (gust {g}), "
             f"humidity {data.get('relative_humidity_pct')}%, pressure {p} inHg, "
-            f"rain today {r} in."
+            f"rain today {r} in"
+        )
+    else:
+        t = data.get("air_temp_c")
+        w = data.get("wind_avg_mps")
+        g = data.get("wind_gust_mps")
+        p = data.get("station_pressure_mb")
+        r = data.get("local_daily_rain_mm")
+        base = (
+            f"Tempest @ {local_ts}: "
+            f"{sky_part}temp {t}°C, wind {w} m/s (gust {g}), "
+            f"humidity {data.get('relative_humidity_pct')}%, pressure {p} mb, "
+            f"rain today {r} mm"
         )
 
-    t = data.get("air_temp_c")
-    w = data.get("wind_avg_mps")
-    g = data.get("wind_gust_mps")
-    p = data.get("station_pressure_mb")
-    r = data.get("local_daily_rain_mm")
-    return (
-        f"Tempest @ {local_ts}: "
-        f"temp {t}°C, wind {w} m/s (gust {g}), "
-        f"humidity {data.get('relative_humidity_pct')}%, pressure {p} mb, "
-        f"rain today {r} mm."
-    )
+    events = build_event_phrases(data, units)
+    if events:
+        return base + "; " + "; ".join(events) + "."
+    return base + "."
 
 
 def build_observations_url(token, station_id=None, device_id=None):
