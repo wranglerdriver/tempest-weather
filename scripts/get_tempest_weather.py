@@ -3,6 +3,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import pathlib
 import sys
 import time
 from urllib import error, parse, request
@@ -26,11 +27,46 @@ def mm_to_in(mm):
     return mm * 0.03937007874
 
 
+def read_version_from_skill_md():
+    try:
+        skill_md = pathlib.Path(__file__).resolve().parent.parent / "SKILL.md"
+        text = skill_md.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+    if not text.startswith("---"):
+        return None
+
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return None
+
+    frontmatter = parts[1]
+    for line in frontmatter.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("version:"):
+            value = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+            return value or None
+    return None
+
+
+def detect_version():
+    # Read SKILL.md frontmatter version when available
+    return read_version_from_skill_md()
+
+
+def build_user_agent():
+    version = detect_version()
+    if version:
+        return f"openclaw-tempest-skill/{version}"
+    return "openclaw-tempest-skill"
+
+
 def get_json(url, retries=1, timeout=20):
     last_err = None
     for attempt in range(retries + 1):
         try:
-            req = request.Request(url, headers={"User-Agent": "openclaw-tempest-skill/1.0"})
+            req = request.Request(url, headers={"User-Agent": build_user_agent()})
             with request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except Exception as e:
@@ -136,6 +172,17 @@ def make_summary(data, units):
     )
 
 
+def build_observations_url(token, station_id=None, device_id=None):
+    q = parse.urlencode({"token": token})
+    if device_id:
+        return f"{API_BASE}/observations/device/{device_id}?{q}"
+    return f"{API_BASE}/observations/station/{station_id}?{q}"
+
+
+def extract_obs_list(payload):
+    return payload.get("obs") or payload.get("obs_st")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Fetch current weather from a Tempest station/device")
     ap.add_argument("--station-id", default=os.getenv("TEMPEST_STATION_ID"))
@@ -155,11 +202,7 @@ def main():
         print("ERROR: Missing API token. Set TEMPEST_API_TOKEN or pass --token", file=sys.stderr)
         sys.exit(2)
 
-    q = parse.urlencode({"token": args.token})
-    if args.device_id:
-        url = f"{API_BASE}/observations/device/{args.device_id}?{q}"
-    else:
-        url = f"{API_BASE}/observations/station/{args.station_id}?{q}"
+    url = build_observations_url(args.token, station_id=args.station_id, device_id=args.device_id)
 
     try:
         payload = get_json(url, retries=1)
@@ -171,7 +214,7 @@ def main():
         print(f"ERROR: Failed to fetch Tempest data: {e}", file=sys.stderr)
         sys.exit(1)
 
-    obs_list = payload.get("obs") or payload.get("obs_st")
+    obs_list = extract_obs_list(payload)
     if not obs_list:
         print("ERROR: Tempest response did not include observations (obs/obs_st)", file=sys.stderr)
         print(json.dumps(payload, indent=2)[:1200], file=sys.stderr)
