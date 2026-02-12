@@ -1,7 +1,7 @@
 ---
 name: tempest-weather
 description: Get current weather conditions from a WeatherFlow Tempest station using the Tempest REST API. Use when asked for backyard/home weather, Tempest station readings, wind/gust/rain/lightning from a specific station, or quick local weather summaries sourced from Tempest data.
-version: 1.0.4
+version: 1.0.5
 license: MIT
 metadata:
   openclaw:
